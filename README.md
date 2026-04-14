@@ -21,7 +21,7 @@ Aucun système centralisé n'existe pour tracer, prioriser et résoudre les inci
 
 En tant qu'Administrateur Système DevOps, je suis missionné pour :
 - Concevoir et déployer une infrastructure cloud automatisée sur AWS
-- Héberger une plateforme de ticketing IT 
+- Héberger une plateforme de ticketing IT (Zammad)
 - Automatiser les déploiements via un pipeline CI/CD (GitHub Actions)
 - Conteneuriser l'application avec Docker et Kubernetes
 - Sécuriser l'ensemble de l'infrastructure
