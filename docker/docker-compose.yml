@@ -1,0 +1,65 @@
+services:
+
+  zammad-postgresql:
+    image: postgres:15-alpine
+    container_name: techassist-db
+    environment:
+      POSTGRES_DB: zammad_production
+      POSTGRES_USER: zammad
+      POSTGRES_PASSWORD: TechAssist2026!
+    volumes:
+      - postgresql_data:/var/lib/postgresql/data
+    networks:
+      - zammad-network
+    restart: unless-stopped
+
+  zammad-redis:
+    image: redis:7-alpine
+    container_name: techassist-cache
+    networks:
+      - zammad-network
+    restart: unless-stopped
+
+  zammad-railsserver:
+    image: ghcr.io/zammad/zammad:latest
+    container_name: techassist-app
+    command: ["zammad-railsserver"]
+    environment:
+      POSTGRESQL_HOST: zammad-postgresql
+      POSTGRESQL_DB: zammad_production
+      POSTGRESQL_USER: zammad
+      POSTGRESQL_PASS: TechAssist2026!
+      REDIS_URL: redis://zammad-redis:6379
+      RAILS_ENV: production
+    ports:
+      - "3000:3000"
+    volumes:
+      - zammad_data:/opt/zammad
+    depends_on:
+      - zammad-postgresql
+      - zammad-redis
+    networks:
+      - zammad-network
+    restart: unless-stopped
+
+  zammad-nginx:
+    image: nginx:alpine
+    container_name: techassist-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+      - zammad_data:/opt/zammad
+    depends_on:
+      - zammad-railsserver
+    networks:
+      - zammad-network
+    restart: unless-stopped
+
+volumes:
+  postgresql_data:
+  zammad_data:
+
+networks:
+  zammad-network:
+    driver: bridge
