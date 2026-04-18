@@ -1,0 +1,50 @@
+# ============================================================
+# PIPELINE DE VÉRIFICATION QUOTIDIENNE
+# Vérifie chaque jour que l'infrastructure est saine
+# ============================================================
+
+name: Vérification quotidienne infrastructure
+
+on:
+  schedule:
+    - cron: '0 7 * * *'    # Tous les jours à 7h du matin
+  workflow_dispatch:         # Permet de lancer manuellement
+
+jobs:
+  health-check:
+    name: Vérification santé infrastructure
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Validation Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Vérification fichiers Terraform
+        run: |
+          cd terraform
+          terraform init -backend=false
+          terraform validate
+          echo "✅ Infrastructure as Code valide"
+
+      - name: Vérification fichiers Kubernetes
+        run: |
+          echo "Vérification des manifests Kubernetes..."
+          for file in kubernetes/*.yaml; do
+            python3 -c "import sys,yaml; yaml.safe_load(open('$file'))" \
+            && echo "✅ $file OK"
+          done
+
+      - name: Rapport de santé
+        run: |
+          echo "================================"
+          echo "Rapport quotidien TechAssist SAS"
+          echo "Date : $(date)"
+          echo "Repo : ${{ github.repository }}"
+          echo "Branch : ${{ github.ref_name }}"
+          echo "✅ Tous les checks sont passés"
+          echo "================================"

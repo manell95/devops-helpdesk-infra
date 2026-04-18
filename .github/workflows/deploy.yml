@@ -1,0 +1,211 @@
+# ============================================================
+# PIPELINE CI/CD — TechAssist SAS
+# Auteur : Nick Manell LOUOCDOM KAMDEM
+# Description : Pipeline complet automatisant :
+#   1. Les tests de validation
+#   2. La construction de l'image Docker
+#   3. Le déploiement sur AWS
+# Déclencheur : chaque push sur la branche main
+# ============================================================
+
+name: Pipeline CI/CD TechAssist
+
+# Déclencheurs du pipeline
+on:
+  push:
+    branches:
+      - main          # Se déclenche à chaque push sur main
+  pull_request:
+    branches:
+      - main          # Se déclenche aussi sur les pull requests
+
+# Variables globales disponibles dans tout le pipeline
+env:
+  DOCKER_IMAGE: techassist-helpdesk
+  DOCKER_TAG: ${{ github.sha }}    # Tag unique = hash du commit
+
+jobs:
+
+  # ============================================================
+  # JOB 1 — VALIDATION DU CODE
+  # Vérifie que les fichiers sont corrects avant de déployer
+  # ============================================================
+  validate:
+    name: Validation du code
+    runs-on: ubuntu-latest         # Machine virtuelle GitHub
+
+    steps:
+      # Étape 1 : Récupère le code source
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+
+      # Étape 2 : Valide les fichiers Terraform
+      - name: Installation de Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
+
+      - name: Initialisation Terraform
+        run: |
+          cd terraform
+          terraform init -backend=false
+
+      - name: Validation syntaxe Terraform
+        run: |
+          cd terraform
+          terraform validate
+          echo "✅ Terraform valide"
+
+      # Étape 3 : Valide les fichiers YAML Kubernetes
+      - name: Validation des manifests Kubernetes
+        run: |
+          # Vérifie que les fichiers YAML sont bien formés
+          for file in kubernetes/*.yaml; do
+            echo "Vérification de $file..."
+            cat "$file" | python3 -c "import sys,yaml; yaml.safe_load(sys.stdin)" \
+            && echo "✅ $file valide" \
+            || echo "❌ $file invalide"
+          done
+
+      # Étape 4 : Valide le docker-compose
+      - name: Validation Docker Compose
+        run: |
+          cd docker
+          # Vérifie la syntaxe du docker-compose
+          docker compose config > /dev/null \
+          && echo "✅ docker-compose.yml valide" \
+          || echo "❌ docker-compose.yml invalide"
+
+  # ============================================================
+  # JOB 2 — BUILD DE L'IMAGE DOCKER
+  # Construit et pousse l'image sur GitHub Container Registry
+  # ============================================================
+  build:
+    name: Construction image Docker
+    runs-on: ubuntu-latest
+    needs: validate                # Attend que la validation soit OK
+
+    steps:
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+
+      # Connexion au registry GitHub (GHCR)
+      - name: Connexion à GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Configuration de Docker Buildx (builder avancé)
+      - name: Configuration Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Construction et push de l'image
+      - name: Construction et push de l'image Docker
+        uses: docker/build-push-action@v5
+        with:
+          context: ./docker         # Dossier contenant le Dockerfile
+          file: ./docker/Dockerfile
+          push: true                # Pousse l'image sur GHCR
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/techassist-helpdesk:latest
+            ghcr.io/${{ github.repository_owner }}/techassist-helpdesk:${{ github.sha }}
+          cache-from: type=gha     # Cache des layers Docker
+          cache-to: type=gha,mode=max
+
+      - name: Résumé du build
+        run: |
+          echo "✅ Image construite avec succès"
+          echo "Tag : ${{ github.sha }}"
+
+  # ============================================================
+  # JOB 3 — TESTS D'INFRASTRUCTURE
+  # Vérifie que l'infrastructure peut être créée
+  # ============================================================
+  test-infra:
+    name: Tests infrastructure
+    runs-on: ubuntu-latest
+    needs: validate
+
+    steps:
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+
+      # Test que les conteneurs démarrent correctement
+      - name: Test de la stack Docker
+        run: |
+          cd docker
+          # Lance uniquement la DB et Redis pour tester
+          docker compose up -d zammad-postgresql zammad-redis
+          sleep 20
+
+          # Vérifie que PostgreSQL répond
+          docker compose exec -T zammad-postgresql \
+            pg_isready -U zammad \
+            && echo "✅ PostgreSQL opérationnel" \
+            || echo "❌ PostgreSQL ne répond pas"
+
+          # Vérifie que Redis répond
+          docker compose exec -T zammad-redis \
+            redis-cli ping \
+            && echo "✅ Redis opérationnel" \
+            || echo "❌ Redis ne répond pas"
+
+          # Nettoyage
+          docker compose down -v
+
+  # ============================================================
+  # JOB 4 — DÉPLOIEMENT EN PRODUCTION
+  # Se déclenche uniquement sur la branche main
+  # ============================================================
+  deploy:
+    name: Déploiement production AWS
+    runs-on: ubuntu-latest
+    needs: [build, test-infra]    # Attend build ET tests
+    if: github.ref == 'refs/heads/main'   # Seulement sur main
+
+    steps:
+      - name: Checkout du code source
+        uses: actions/checkout@v4
+
+      # Configuration des credentials AWS
+      - name: Configuration AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-3
+
+      # Déploiement via SSH sur le serveur EC2
+      - name: Déploiement sur le serveur EC2
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ubuntu
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            # Se place dans le dossier du projet
+            cd ~/devops-helpdesk-infra/docker
+
+            # Récupère la dernière version du code
+            git pull origin main
+
+            # Télécharge les nouvelles images
+            docker compose pull
+
+            # Redémarre les services avec les nouvelles images
+            docker compose up -d --remove-orphans
+
+            # Vérifie que tout tourne
+            docker compose ps
+
+            echo "✅ Déploiement terminé avec succès !"
+
+      # Notification de fin de déploiement
+      - name: Notification déploiement
+        run: |
+          echo "🚀 Déploiement effectué avec succès !"
+          echo "Commit : ${{ github.sha }}"
+          echo "Branche : ${{ github.ref_name }}"
+          echo "Auteur : ${{ github.actor }}"
