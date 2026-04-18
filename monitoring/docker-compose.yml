@@ -1,0 +1,86 @@
+# ============================================================
+# STACK DE SUPERVISION — TechAssist SAS
+# Auteur : Nick Manell LOUOCDOM KAMDEM
+# Lance Prometheus + Grafana + Node Exporter + Alertmanager
+# ============================================================
+
+services:
+
+  # ---- PROMETHEUS — Collecte des métriques ----
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: techassist-prometheus
+    ports:
+      - "9090:9090"              # Interface web Prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./alert.rules.yml:/etc/prometheus/alert.rules.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+  # ---- GRAFANA — Visualisation des métriques ----
+  grafana:
+    image: grafana/grafana:latest
+    container_name: techassist-grafana
+    ports:
+      - "3001:3000"              # Port 3001 pour éviter conflit avec Zammad
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    environment:
+      # Identifiants de connexion Grafana
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=TechAssist2026!
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=localhost
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # ---- NODE EXPORTER — Métriques système ----
+  # Expose les métriques CPU, RAM, disque du serveur hôte
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: techassist-node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      # Monte les dossiers système pour lire les métriques
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+  # ---- ALERTMANAGER — Gestion des alertes ----
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: techassist-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - monitoring-network
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  monitoring-network:
+    driver: bridge

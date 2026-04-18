@@ -1,0 +1,40 @@
+# ============================================================
+# CONFIGURATION ALERTMANAGER — TechAssist SAS
+# Gère l'envoi des alertes par email
+# ============================================================
+
+global:
+  # Délai avant de renvoyer une alerte non résolue
+  repeat_interval: 4h
+
+route:
+  # Regroupement des alertes
+  group_by: ['alertname', 'severity']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  # Destinataire par défaut
+  receiver: 'techassist-admin'
+
+receivers:
+  - name: 'techassist-admin'
+    email_configs:
+      - to: 'nick.louocdom@techassist.fr'
+        from: 'alertes@techassist.fr'
+        smarthost: 'smtp.gmail.com:587'
+        auth_username: 'alertes@techassist.fr'
+        auth_password: 'mot_de_passe_application'
+        send_resolved: true    # Notifie aussi quand l'alerte est résolue
+        html: |
+          <h2>🚨 Alerte TechAssist SAS</h2>
+          <p><b>Alerte :</b> {{ .GroupLabels.alertname }}</p>
+          <p><b>Sévérité :</b> {{ .GroupLabels.severity }}</p>
+          <p><b>Détail :</b> {{ range .Alerts }}{{ .Annotations.description }}{{ end }}</p>
+
+inhibit_rules:
+  # Si une alerte critique existe, supprime les warnings
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname']

@@ -1,0 +1,48 @@
+# ============================================================
+# RÈGLES D'ALERTES — TechAssist SAS
+# Définit les seuils qui déclenchent des alertes automatiques
+# ============================================================
+
+groups:
+  - name: techassist-alerts
+    rules:
+
+      # Alerte si CPU > 80% pendant 5 minutes
+      - alert: CPUEleveeCritique
+        expr: 100 - (avg(rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU élevée sur TechAssist"
+          description: "Le CPU est à {{ $value }}% depuis 5 minutes"
+
+      # Alerte si RAM > 85%
+      - alert: MemoireInsuffisante
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Mémoire critique sur TechAssist"
+          description: "La RAM est utilisée à {{ $value }}%"
+
+      # Alerte si disque > 90%
+      - alert: DisquePresque Plein
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 90
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disque presque plein"
+          description: "Le disque est utilisé à {{ $value }}%"
+
+      # Alerte si un service est down
+      - alert: ServiceIndisponible
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service indisponible"
+          description: "Le service {{ $labels.job }} est DOWN"

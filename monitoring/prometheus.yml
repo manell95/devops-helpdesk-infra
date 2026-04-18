@@ -1,0 +1,66 @@
+# ============================================================
+# CONFIGURATION PROMETHEUS — TechAssist SAS
+# Auteur : Nick Manell LOUOCDOM KAMDEM
+# Description : Définit les cibles à surveiller et
+#               la fréquence de collecte des métriques
+# ============================================================
+
+global:
+  # Collecte les métriques toutes les 15 secondes
+  scrape_interval: 15s
+  # Évalue les règles d'alerte toutes les 15 secondes
+  evaluation_interval: 15s
+  # Identifiant de ce serveur Prometheus
+  external_labels:
+    monitor: 'techassist-monitor'
+    environment: 'production'
+
+# Fichiers de règles d'alertes
+rule_files:
+  - "alert.rules.yml"
+
+# Configuration de l'Alertmanager
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# ---- CIBLES À SURVEILLER ----
+scrape_configs:
+
+  # Prometheus se surveille lui-même
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Node Exporter — métriques système (CPU, RAM, disque)
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+        labels:
+          service: 'system'
+          host: 'techassist-server'
+
+  # Surveillance de l'application Zammad
+  - job_name: 'zammad'
+    static_configs:
+      - targets: ['techassist-app:3000']
+        labels:
+          service: 'zammad-helpdesk'
+
+  # Surveillance de Nginx
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['techassist-nginx:80']
+        labels:
+          service: 'nginx-proxy'
+
+  # Surveillance PostgreSQL
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['techassist-db:5432']
+        labels:
+          service: 'database'
