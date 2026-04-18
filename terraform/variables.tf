@@ -26,3 +26,9 @@ variable "environment" {
 	type        = string
 	default     = "prod"
 }
+
+variable "project_name" {
+  description = "Nom du projet utilisé pour les tags AWS"
+  type        = string
+  default     = "devops-helpdesk"
+}
